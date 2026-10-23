@@ -34,71 +34,305 @@
 </div><div class="stamp" id="welcomeTime"></div></article></div></div></div>
 <footer class="composer-wrap"><div class="status" id="status" role="status"></div><form class="composer" id="form"><textarea class="textarea" id="message" rows="1" placeholder="Choose a service to start..." aria-label="Type a message" disabled></textarea><button class="send" id="send" type="submit" aria-label="Send message" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button></form><div class="footer-note">AI-generated information may contain errors. For urgent medical assistance, contact hospital staff directly.</div></footer>
 </section></main>
+
 <script>
 'use strict';
-// n8n Chat Trigger URL – update here if your workflow URL changes.
-const N8N_CHAT_URL = 'https://abdullahagent1.app.n8n.cloud/webhook/c7467cec-f8ff-4c28-b1c0-a4b59483af28/chat';
-// Public n8n production route: only a menu selection, never credentials or patient data.
-const N8N_MENU_URL = 'https://abdullahagent1.app.n8n.cloud/webhook/hospital-menu';
-const OPTIONS = { info:{label:'Get Info',code:'get_info'}, token:{label:'Get New Token',code:'get_new_token'},booking:{label:'Appointment Booking',code:'appointment_booking'},cancel:{label:'Cancel Appointment',code:'cancel_appointment'} };
-const chat = document.getElementById('chat');const messages = document.getElementById('messages');const input = document.getElementById('message');const send = document.getElementById('send');const status = document.getElementById('status');const reset = document.getElementById('reset');const form = document.getElementById('form');let busy=false, service=null;
-const uuid=()=> (window.crypto && crypto.randomUUID)?crypto.randomUUID():'session-'+Date.now()+'-'+Math.random().toString(36).slice(2);
-let sessionId=uuid();
-const now=()=>new Date().toLocaleTimeString('en-PK',{hour:'2-digit',minute:'2-digit',hour12:true});document.getElementById('welcomeTime').textContent=now();
-function append(role, value){const row=document.createElement('div');row.className='line '+role;const bubble=document.createElement('div');bubble.className='bubble '+role;if(role==='bot'){const sender=document.createElement('div');sender.className='sender';sender.textContent='Al Mumtaz Hospital';bubble.append(sender)}const body=document.createElement('div');body.textContent=value;bubble.append(body);const t=document.createElement('div');t.className='stamp';t.textContent=now();bubble.append(t);row.append(bubble);messages.append(row);scrollBottom();return row}
-function scrollBottom(){chat.scrollTop=chat.scrollHeight}
-function setBusy(v){busy=v;input.disabled=v||!service;send.disabled=v||!service;reset.disabled=v;document.querySelectorAll('.choice').forEach(x=>x.disabled=v);status.textContent=v?'AI Assistant is responding…':''}
-function botText(payload){if(typeof payload==='string')return payload;if(Array.isArray(payload)){return payload.map(botText).filter(Boolean).join('\n')}if(payload&&typeof payload==='object'){for(const k of ['output','text','reply','message','response','content']){if(typeof payload[k]==='string')return payload[k];if(payload[k]&&typeof payload[k]==='object'){const value=botText(payload[k]);if(value)return value}}if(payload.data)return botText(payload.data)}return ''}
-async function askAgent(text){setBusy(true);try{const response=await fetch(N8N_CHAT_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sendMessage',sessionId,chatInput:text,selectedService:OPTIONS[service].code})});if(!response.ok)throw new Error('HTTP '+response.status);const raw=await response.text();let payload;try{payload=JSON.parse(raw)}catch{payload=raw}const answer=botText(payload);if(!answer)throw new Error('No usable AI reply');append('bot',answer)}catch(error){console.error('n8n chat error:',error);append('bot','Sorry, the AI Assistant is temporarily unavailable. Please try again or contact hospital staff.');status.textContent='Connection issue. Check n8n workflow and website CORS settings.'}finally{setBusy(false);input.focus()}}
-async function choose(which){
-  if(busy||service||!Object.prototype.hasOwnProperty.call(OPTIONS,which))return;
-  busy=true;
-  document.querySelectorAll('.choice').forEach(x=>x.disabled=true);
-  status.textContent='Connecting to hospital service…';
-  const newSessionId=uuid();
-  try{
-    const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),15000);
-    let response;
-    try{
-      response=await fetch(N8N_MENU_URL,{
-        method:'POST',
-        mode:'cors',
-        credentials:'omit',
-        cache:'no-store',
-        redirect:'error',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({selected_action:OPTIONS[which].code,session_id:newSessionId}),
-        signal:controller.signal
-      });
-    }finally{clearTimeout(timeout)}
-    if(!response.ok)throw new Error('Menu HTTP '+response.status);
-    // Route confirmation only. Real authorization/session locking must happen on the n8n backend.
-    service=which;
-    sessionId=newSessionId;
-    document.getElementById('choices').classList.add('hidden');
-    reset.classList.add('visible');
-    input.disabled=false;
-    send.disabled=false;
-    input.placeholder='Type a message...';
-    append('user',OPTIONS[which].label);
-  }catch(error){
-    console.error('Hospital menu routing error:',error);
-    status.textContent='Could not connect to this service. Please try again.';
-    return;
-  }finally{
-    busy=false;
-    document.querySelectorAll('.choice').forEach(x=>x.disabled=!!service);
-  }
-  askAgent('SELECT_SERVICE: '+OPTIONS[which].code+'\nUser selected '+OPTIONS[which].label+'. Please handle ONLY this selected service. Ask the first relevant question. Do not perform any booking, token creation, or cancellation without required verification and tool confirmation.');
+
+const N8N_URL = "https://abdullahagent1.app.n8n.cloud/webhook/hospital-menu";
+
+const OPTIONS = {
+  info: {label:"Get Info",code:"get_info"},
+  token: {label:"Get New Token",code:"get_new_token"},
+  booking: {label:"Appointment Booking",code:"appointment_booking"},
+  cancel: {label:"Cancel Appointment",code:"cancel_appointment"}
+};
+
+const chat = document.getElementById("chat");
+const messages = document.getElementById("messages");
+const input = document.getElementById("message");
+const send = document.getElementById("send");
+const status = document.getElementById("status");
+const reset = document.getElementById("reset");
+const form = document.getElementById("form");
+
+let busy = false;
+let service = null;
+
+function uuid() {
+  return crypto.randomUUID();
 }
-document.querySelectorAll('.choice').forEach(b=>b.addEventListener('click',()=>choose(b.dataset.service)));
-form.addEventListener('submit',event=>{event.preventDefault();const value=input.value.trim();if(!service||busy||!value)return;input.value='';input.style.height='48px';append('user',value);askAgent(value)});
-input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit()}});
-input.addEventListener('input',()=>{input.style.height='48px';input.style.height=Math.min(input.scrollHeight,122)+'px'});
-reset.addEventListener('click',()=>{if(busy)return;service=null;sessionId=uuid();// Clear added chat rows, retain the welcome message and four options
-messages.querySelectorAll('.line').forEach((el,i)=>{if(i>0)el.remove()});
-document.getElementById('choices').classList.remove('hidden');reset.classList.remove('visible');input.value='';input.disabled=true;send.disabled=true;input.placeholder='Choose a service to start...';status.textContent='';scrollBottom()});
+
+let sessionId = uuid();
+
+function now() {
+  return new Date().toLocaleTimeString("en-PK", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+}
+
+document.getElementById("welcomeTime").textContent = now();
+
+function scrollBottom() {
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function append(role, value) {
+  const row = document.createElement("div");
+  row.className = "line " + role;
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble " + role;
+
+  if (role === "bot") {
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    sender.textContent = "Al Mumtaz Hospital";
+    bubble.appendChild(sender);
+  }
+
+  const body = document.createElement("div");
+  body.textContent = String(value);
+  bubble.appendChild(body);
+
+  const stamp = document.createElement("div");
+  stamp.className = "stamp";
+  stamp.textContent = now();
+
+  bubble.appendChild(stamp);
+  row.appendChild(bubble);
+  messages.appendChild(row);
+  scrollBottom();
+}
+
+function setBusy(value) {
+  busy = value;
+  input.disabled = value || !service;
+  send.disabled = value || !service;
+  reset.disabled = value;
+
+  document.querySelectorAll(".choice").forEach(button => {
+    button.disabled = value || !!service;
+  });
+
+  status.textContent = value
+    ? "AI Assistant is responding..."
+    : "";
+}
+
+function getReply(data) {
+  if (typeof data === "string") return data;
+
+  if (Array.isArray(data)) {
+    return data.map(getReply).filter(Boolean).join("\n");
+  }
+
+  if (data && typeof data === "object") {
+    for (const key of [
+      "reply", "output", "message", "text", "response"
+    ]) {
+      if (data[key]) return getReply(data[key]);
+    }
+
+    if (data.data) return getReply(data.data);
+  }
+
+  return "";
+}
+
+async function requestAI(action, chatInput, id) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(N8N_URL, {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        selected_action: action,
+        session_id: id,
+        chatInput: chatInput
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("n8n HTTP " + response.status);
+    }
+
+    const raw = await response.text();
+
+    if (!raw.trim()) {
+      throw new Error("Empty response");
+    }
+
+    let data;
+
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = raw;
+    }
+
+    const reply = getReply(data);
+
+    if (!reply) {
+      throw new Error("No reply from n8n");
+    }
+
+    return reply;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function choose(which) {
+  if (
+    busy ||
+    service ||
+    !Object.prototype.hasOwnProperty.call(OPTIONS, which)
+  ) return;
+
+  const option = OPTIONS[which];
+  const newSession = uuid();
+
+  setBusy(true);
+  status.textContent = "Connecting to hospital service...";
+
+  try {
+    const initialMessage =
+      "Website button selected: " + option.label +
+      ". Start this service and ask the first relevant question. " +
+      "Do not create bookings, cancel appointments or issue tokens " +
+      "before collecting required details and confirmations.";
+
+    const reply = await requestAI(
+      option.code,
+      initialMessage,
+      newSession
+    );
+
+    service = which;
+    sessionId = newSession;
+
+    document.getElementById("choices").classList.add("hidden");
+    reset.classList.add("visible");
+
+    input.placeholder = "Type a message...";
+
+    append("user", option.label);
+    append("bot", reply);
+
+  } catch (error) {
+    console.error("Hospital connection:", error);
+
+    append(
+      "bot",
+      "Could not connect to this service. Please try again."
+    );
+
+    status.textContent = "Connection issue.";
+  } finally {
+    setBusy(false);
+    if (service) input.focus();
+  }
+}
+
+async function askAgent(message) {
+  if (!service || busy) return;
+
+  setBusy(true);
+
+  try {
+    const reply = await requestAI(
+      OPTIONS[service].code,
+      message,
+      sessionId
+    );
+
+    append("bot", reply);
+
+  } catch (error) {
+    console.error("AI Agent error:", error);
+
+    append(
+      "bot",
+      "The AI Assistant is temporarily unavailable. Please try again."
+    );
+
+    status.textContent = "Connection issue.";
+  } finally {
+    setBusy(false);
+    input.focus();
+  }
+}
+
+document.querySelectorAll(".choice").forEach(button => {
+  button.addEventListener("click", () => {
+    choose(button.dataset.service);
+  });
+});
+
+form.addEventListener("submit", event => {
+  event.preventDefault();
+
+  const value = input.value.trim();
+
+  if (!service || busy || !value) return;
+
+  input.value = "";
+  input.style.height = "48px";
+
+  append("user", value);
+  askAgent(value);
+});
+
+input.addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+
+input.addEventListener("input", () => {
+  input.style.height = "48px";
+  input.style.height =
+    Math.min(input.scrollHeight, 122) + "px";
+});
+
+reset.addEventListener("click", () => {
+  if (busy) return;
+
+  service = null;
+  sessionId = uuid();
+
+  messages.querySelectorAll(".line").forEach((element, i) => {
+    if (i > 0) element.remove();
+  });
+
+  document.getElementById("choices").classList.remove("hidden");
+  reset.classList.remove("visible");
+
+  input.value = "";
+  input.disabled = true;
+  send.disabled = true;
+  input.placeholder = "Choose a service to start...";
+
+  status.textContent = "";
+
+  document.querySelectorAll(".choice").forEach(button => {
+    button.disabled = false;
+  });
+
+  scrollBottom();
+});
+
 </script>
 </body>
 </html>
